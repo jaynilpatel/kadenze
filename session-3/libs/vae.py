@@ -24,9 +24,9 @@ def VAE(input_shape=[None, 784],
         convolutional=False,
         variational=False):
     """(Variational) (Convolutional) (Denoising) Autoencoder.
-
+    
     Uses tied weights.
-
+    
     Parameters
     ----------
     input_shape : list, optional
@@ -73,7 +73,7 @@ def VAE(input_shape=[None, 784],
         layer, then another fully connected layer.  The size of the fully
         connected layers are determined by `n_hidden`, and the size of the
         sampling layer is determined by `n_code`.
-
+    
     Returns
     -------
     model : dict
@@ -94,11 +94,11 @@ def VAE(input_shape=[None, 784],
     keep_prob = tf.placeholder(tf.float32, name='keep_prob')
     corrupt_prob = tf.placeholder(tf.float32, [1])
 
-    # apply noise if denoising
-    x_ = (utils.corrupt(x) * corrupt_prob + x * (1 - corrupt_prob)) if denoising else x
+    if denoising:
+        current_input = utils.corrupt(x) * corrupt_prob + x * (1 - corrupt_prob)
 
     # 2d -> 4d if convolution
-    x_tensor = utils.to_tensor(x_) if convolutional else x_
+    x_tensor = utils.to_tensor(x) if convolutional else x
     current_input = x_tensor
 
     Ws = []
@@ -142,10 +142,10 @@ def VAE(input_shape=[None, 784],
 
             # Sample from noise distribution p(eps) ~ N(0, 1)
             epsilon = tf.random_normal(
-                tf.stack([tf.shape(x)[0], n_code]))
+                tf.pack([tf.shape(x)[0], n_code]))
 
             # Sample from posterior
-            z = z_mu + tf.multiply(epsilon, tf.exp(z_log_sigma))
+            z = z_mu + tf.mul(epsilon, tf.exp(z_log_sigma))
 
             if n_hidden:
                 h = utils.linear(z, n_hidden, name='fc_t')[0]
@@ -163,7 +163,7 @@ def VAE(input_shape=[None, 784],
 
             if convolutional:
                 current_input = tf.reshape(
-                    current_input, tf.stack([
+                    current_input, tf.pack([
                         tf.shape(current_input)[0],
                         dims[1],
                         dims[2],
@@ -245,9 +245,9 @@ def train_vae(files,
               save_step=100,
               ckpt_name="vae.ckpt"):
     """General purpose training of a (Variational) (Convolutional) Autoencoder.
-
+    
     Supply a list of file paths to images, and this will do everything else.
-
+    
     Parameters
     ----------
     files : list of strings
@@ -328,7 +328,7 @@ def train_vae(files,
     # We create a session to use the graph
     sess = tf.Session()
     saver = tf.train.Saver()
-    sess.run(tf.global_variables_initializer())
+    sess.run(tf.initialize_all_variables())
 
     # This will handle our threaded image pipeline
     coord = tf.train.Coordinator()
@@ -339,7 +339,7 @@ def train_vae(files,
     # Start up the queues for handling the image pipeline
     threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
-    if os.path.exists(ckpt_name + '.index') or os.path.exists(ckpt_name):
+    if os.path.exists(ckpt_name):
         saver.restore(sess, ckpt_name)
 
     # Fit all training data
@@ -351,18 +351,14 @@ def train_vae(files,
     test_xs = sess.run(batch) / 255.0
     utils.montage(test_xs, 'test_xs.png')
     try:
-        while not coord.should_stop() and epoch_i < n_epochs:
+        while not coord.should_stop():
             batch_i += 1
             batch_xs = sess.run(batch) / 255.0
             train_cost = sess.run([ae['cost'], optimizer], feed_dict={
                 ae['x']: batch_xs, ae['train']: True,
                 ae['keep_prob']: keep_prob})[0]
-            print(batch_i, train_cost)
             cost += train_cost
             if batch_i % n_files == 0:
-                print('epoch:', epoch_i)
-                print('average cost:', cost / batch_i)
-                cost = 0
                 batch_i = 0
                 epoch_i += 1
 
@@ -381,8 +377,6 @@ def train_vae(files,
                     ae['y'], feed_dict={ae['x']: test_xs,
                                         ae['train']: False,
                                         ae['keep_prob']: 1.0})
-                print('reconstruction (min, max, mean):',
-                    recon.min(), recon.max(), recon.mean())
                 utils.montage(recon.reshape([-1] + crop_shape),
                               'reconstruction_%08d.png' % t_i)
                 t_i += 1
@@ -407,9 +401,9 @@ def train_vae(files,
 
 
 # %%
-def test_mnist(n_epochs=10):
+def test_mnist():
     """Train an autoencoder on MNIST.
-
+    
     This function will train an autoencoder on MNIST and also
     save many image files during the training process, demonstrating
     the latent space of the inner most dimension of the encoder,
@@ -418,7 +412,7 @@ def test_mnist(n_epochs=10):
 
     # load MNIST
     n_code = 2
-    mnist = MNIST(split=[0.8, 0.1, 0.1])
+    mnist = MNIST()
     ae = VAE(input_shape=[None, 784], n_filters=[512, 256],
              n_hidden=64, n_code=n_code, activation=tf.nn.sigmoid,
              convolutional=False, variational=True)
@@ -434,21 +428,20 @@ def test_mnist(n_epochs=10):
 
     # We create a session to use the graph
     sess = tf.Session()
-    sess.run(tf.global_variables_initializer())
+    sess.run(tf.initialize_all_variables())
 
     # Fit all training data
     t_i = 0
     batch_i = 0
     batch_size = 200
+    n_epochs = 10
     test_xs = mnist.test.images[:n_examples]
     utils.montage(test_xs.reshape((-1, 28, 28)), 'test_xs.png')
     for epoch_i in range(n_epochs):
-        train_i = 0
         train_cost = 0
         for batch_xs, _ in mnist.train.next_batch(batch_size):
             train_cost += sess.run([ae['cost'], optimizer], feed_dict={
                 ae['x']: batch_xs, ae['train']: True, ae['keep_prob']: 1.0})[0]
-            train_i += 1
             if batch_i % 10 == 0:
                 # Plot example reconstructions from latent layer
                 recon = sess.run(
@@ -456,8 +449,8 @@ def test_mnist(n_epochs=10):
                         ae['z']: zs,
                         ae['train']: False,
                         ae['keep_prob']: 1.0})
-                utils.montage(recon.reshape((-1, 28, 28)),
-                    'manifold_%08d.png' % t_i)
+                utils.montage(recon.reshape(
+                    (-1, 28, 28)), 'manifold_%08d.png' % t_i)
                 # Plot example reconstructions
                 recon = sess.run(
                     ae['y'], feed_dict={ae['x']: test_xs,
@@ -467,17 +460,13 @@ def test_mnist(n_epochs=10):
                     (-1, 28, 28)), 'reconstruction_%08d.png' % t_i)
                 t_i += 1
             batch_i += 1
-
-        valid_i = 0
         valid_cost = 0
         for batch_xs, _ in mnist.valid.next_batch(batch_size):
             valid_cost += sess.run([ae['cost']], feed_dict={
                 ae['x']: batch_xs, ae['train']: False, ae['keep_prob']: 1.0})[0]
-            valid_i += 1
-        print('train:', train_cost / train_i, 'valid:', valid_cost / valid_i)
 
 
-def test_celeb(n_epochs=50):
+def test_celeb():
     """Train an autoencoder on Celeb Net.
     """
     files = CELEB()
@@ -485,7 +474,7 @@ def test_celeb(n_epochs=50):
         files=files,
         input_shape=[218, 178, 3],
         batch_size=100,
-        n_epochs=n_epochs,
+        n_epochs=50,
         crop_shape=[64, 64, 3],
         crop_factor=0.8,
         convolutional=True,
@@ -496,7 +485,7 @@ def test_celeb(n_epochs=50):
         dropout=True,
         filter_sizes=[3, 3, 3],
         activation=tf.nn.sigmoid,
-        ckpt_name='./celeb.ckpt')
+        ckpt_name='celeb.ckpt')
 
 
 def test_sita():
@@ -524,7 +513,7 @@ def test_sita():
         dropout=True,
         filter_sizes=[3, 3, 3],
         activation=tf.nn.sigmoid,
-        ckpt_name='./sita.ckpt')
+        ckpt_name='sita.ckpt')
 
 
 if __name__ == '__main__':

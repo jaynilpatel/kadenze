@@ -10,7 +10,6 @@ import pickle
 import numpy as np
 import tensorflow as tf
 from . import dft
-from .utils import download_and_extract_tar
 
 
 def create_input_pipeline(files, batch_size, n_epochs, shape, crop_shape=None,
@@ -74,7 +73,7 @@ def create_input_pipeline(files, batch_size, n_epochs, shape, crop_shape=None,
     else:
         rsz_shape = [int(crop_shape[0] / crop_factor),
                      int(shape[1] / shape[0] * crop_shape[1] / crop_factor)]
-    rszs = tf.image.resize_images(imgs, rsz_shape)
+    rszs = tf.image.resize_images(imgs, rsz_shape[0], rsz_shape[1])
     crops = (tf.image.resize_image_with_crop_or_pad(
         rszs, crop_shape[0], crop_shape[1])
         if crop_shape is not None
@@ -102,6 +101,51 @@ def create_input_pipeline(files, batch_size, n_epochs, shape, crop_shape=None,
     # instances, or set shuffle_batch's n_threads to higher than 1.
 
     return batch
+
+
+def download_and_extract_tar(path, dst):
+    """Download and extract a tar file.
+
+    Parameters
+    ----------
+    path : str
+        Url to tar file to download.
+    dst : str
+        Location to save tar file contents.
+    """
+    import tarfile
+    filepath = download(path)
+    if not os.path.exists(dst):
+        os.makedirs(dst)
+    tarfile.open(filepath, 'r:gz').extractall(dst)
+
+
+def download(path):
+    """Use urllib to download a file.
+
+    Parameters
+    ----------
+    path : str
+        Url to download
+
+    Returns
+    -------
+    path : str
+        Location of downloaded file.
+    """
+    from six.moves import urllib
+    from IPython.core.display import clear_output
+
+    print('Downloading ' + path)
+
+    def progress(count, block_size, total_size):
+        print('Downloaded %02.02f/%02.02f MB' % (
+            count * block_size / 1024.0 / 1024.0,
+            total_size / 1024.0 / 1024.0))
+        clear_output(wait=True)
+
+    filepath, _ = urllib.request.urlretrieve(path, reporthook=progress)
+    return filepath
 
 
 def gtzan_music_speech_download(dst='gtzan_music_speech'):
@@ -360,10 +404,8 @@ class Dataset(object):
         self.train_idxs = idxs[:round(split[0] * n_idxs)]
         self.valid_idxs = idxs[len(self.train_idxs):
                                len(self.train_idxs) + round(split[1] * n_idxs)]
-        self.test_idxs = idxs[
-            (len(self.valid_idxs) + len(self.train_idxs)):
-            (len(self.valid_idxs) + len(self.train_idxs)) +
-             round(split[2] * n_idxs)]
+        self.test_idxs = idxs[len(self.valid_idxs):
+                              len(self.valid_idxs) + round(split[2] * n_idxs)]
 
     @property
     def X(self):
@@ -396,14 +438,11 @@ class Dataset(object):
         split : DatasetSplit
             Split of the train dataset.
         """
-        if len(self.train_idxs):
-            inputs = self.all_inputs[self.train_idxs, ...]
-            if self.all_labels is not None:
-                labels = self.all_labels[self.train_idxs, ...]
-            else:
-                labels = None
+        inputs = self.all_inputs[self.train_idxs, ...]
+        if self.all_labels is not None:
+            labels = self.all_labels[self.train_idxs, ...]
         else:
-            inputs, labels = [], []
+            labels = None
         return DatasetSplit(inputs, labels)
 
     @property
@@ -415,14 +454,11 @@ class Dataset(object):
         split : DatasetSplit
             Split of the validation dataset.
         """
-        if len(self.valid_idxs):
-            inputs = self.all_inputs[self.valid_idxs, ...]
-            if self.all_labels is not None:
-                labels = self.all_labels[self.valid_idxs, ...]
-            else:
-                labels = None
+        inputs = self.all_inputs[self.valid_idxs, ...]
+        if self.all_labels is not None:
+            labels = self.all_labels[self.valid_idxs, ...]
         else:
-            inputs, labels = [], []
+            labels = None
         return DatasetSplit(inputs, labels)
 
     @property
@@ -434,14 +470,11 @@ class Dataset(object):
         split : DatasetSplit
             Split of the test dataset.
         """
-        if len(self.test_idxs):
-            inputs = self.all_inputs[self.test_idxs, ...]
-            if self.all_labels is not None:
-                labels = self.all_labels[self.test_idxs, ...]
-            else:
-                labels = None
+        inputs = self.all_inputs[self.test_idxs, ...]
+        if self.all_labels is not None:
+            labels = self.all_labels[self.test_idxs, ...]
         else:
-            inputs, labels = [], []
+            labels = None
         return DatasetSplit(inputs, labels)
 
     def mean(self):

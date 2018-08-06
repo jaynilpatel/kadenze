@@ -6,7 +6,6 @@ Parag K. Mital
 
 Copyright Parag K. Mital, June 2016.
 """
-from __future__ import print_function
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import urllib
@@ -14,74 +13,6 @@ import numpy as np
 import zipfile
 import os
 from scipy.io import wavfile
-from scipy.misc import imsave
-
-def download(path):
-    """Use urllib to download a file.
-
-    Parameters
-    ----------
-    path : str
-        Url to download
-
-    Returns
-    -------
-    path : str
-        Location of downloaded file.
-    """
-    import os
-    from six.moves import urllib
-
-    fname = path.split('/')[-1]
-    if os.path.exists(fname):
-        return fname
-
-    print('Downloading ' + path)
-
-    def progress(count, block_size, total_size):
-        if count % 20 == 0:
-            print('Downloaded %02.02f/%02.02f MB' % (
-                count * block_size / 1024.0 / 1024.0,
-                total_size / 1024.0 / 1024.0), end='\r')
-
-    filepath, _ = urllib.request.urlretrieve(
-        path, filename=fname, reporthook=progress)
-    return filepath
-
-
-def download_and_extract_tar(path, dst):
-    """Download and extract a tar file.
-
-    Parameters
-    ----------
-    path : str
-        Url to tar file to download.
-    dst : str
-        Location to save tar file contents.
-    """
-    import tarfile
-    filepath = download(path)
-    if not os.path.exists(dst):
-        os.makedirs(dst)
-        tarfile.open(filepath, 'r:gz').extractall(dst)
-
-
-def download_and_extract_zip(path, dst):
-    """Download and extract a zip file.
-
-    Parameters
-    ----------
-    path : str
-        Url to zip file to download.
-    dst : str
-        Location to save zip file contents.
-    """
-    import zipfile
-    filepath = download(path)
-    if not os.path.exists(dst):
-        os.makedirs(dst)
-        zf = zipfile.ZipFile(file=filepath)
-        zf.extractall(dst)
 
 
 def load_audio(filename, b_normalize=True):
@@ -116,7 +47,7 @@ def corrupt(x):
     x_corrupted : Tensor
         50 pct of values corrupted.
     """
-    return tf.multiply(x, tf.cast(tf.random_uniform(shape=tf.shape(x),
+    return tf.mul(x, tf.cast(tf.random_uniform(shape=tf.shape(x),
                                                minval=0,
                                                maxval=2,
                                                dtype=tf.int32), tf.float32))
@@ -247,17 +178,10 @@ def montage(images, saveto='montage.png'):
         m = np.ones(
             (images.shape[1] * n_plots + n_plots + 1,
              images.shape[2] * n_plots + n_plots + 1, 3)) * 0.5
-    elif len(images.shape) == 4 and images.shape[3] == 1:
-        m = np.ones(
-            (images.shape[1] * n_plots + n_plots + 1,
-             images.shape[2] * n_plots + n_plots + 1, 1)) * 0.5
-    elif len(images.shape) == 3:
+    else:
         m = np.ones(
             (images.shape[1] * n_plots + n_plots + 1,
              images.shape[2] * n_plots + n_plots + 1)) * 0.5
-    else:
-        raise ValueError('Could not parse image shape of {}'.format(
-            images.shape))
     for i in range(n_plots):
         for j in range(n_plots):
             this_filter = i * n_plots + j
@@ -265,7 +189,7 @@ def montage(images, saveto='montage.png'):
                 this_img = images[this_filter]
                 m[1 + i + i * img_h:1 + i + (i + 1) * img_h,
                   1 + j + j * img_w:1 + j + (j + 1) * img_w] = this_img
-    imsave(arr=np.squeeze(m), name=saveto)
+    plt.imsave(arr=m, fname=saveto)
     return m
 
 
@@ -367,7 +291,7 @@ def gauss(mean, stddev, ksize):
     g = tf.Graph()
     with tf.Session(graph=g):
         x = tf.linspace(-3.0, 3.0, ksize)
-        z = (tf.exp(tf.negative(tf.pow(x - mean, 2.0) /
+        z = (tf.exp(tf.neg(tf.pow(x - mean, 2.0) /
                            (2.0 * tf.pow(stddev, 2.0)))) *
              (1.0 / (stddev * tf.sqrt(2.0 * 3.1415))))
         return z.eval()
@@ -441,7 +365,7 @@ def gabor(ksize=32):
         ys = tf.sin(tf.linspace(-3.0, 3.0, ksize))
         ys = tf.reshape(ys, [ksize, 1])
         wave = tf.matmul(ys, ones)
-        gabor = tf.multiply(wave, z_2d)
+        gabor = tf.mul(wave, z_2d)
         return gabor.eval()
 
 
@@ -495,7 +419,7 @@ def weight_variable(shape, **kwargs):
         Size of weight variable
     '''
     if isinstance(shape, list):
-        initial = tf.random_normal(tf.stack(shape), mean=0.0, stddev=0.01)
+        initial = tf.random_normal(tf.pack(shape), mean=0.0, stddev=0.01)
         initial.set_shape(shape)
     else:
         initial = tf.random_normal(shape, mean=0.0, stddev=0.01)
@@ -512,7 +436,7 @@ def bias_variable(shape, **kwargs):
         Size of weight variable
     '''
     if isinstance(shape, list):
-        initial = tf.random_normal(tf.stack(shape), mean=0.0, stddev=0.01)
+        initial = tf.random_normal(tf.pack(shape), mean=0.0, stddev=0.01)
         initial.set_shape(shape)
     else:
         initial = tf.random_normal(shape, mean=0.0, stddev=0.01)
@@ -627,14 +551,14 @@ def deconv2d(x, n_output_h, n_output_w, n_output_ch, n_input_ch=None,
     with tf.variable_scope(name or 'deconv2d', reuse=reuse):
         W = tf.get_variable(
             name='W',
-            shape=[k_h, k_w, n_output_ch, n_input_ch or x.get_shape()[-1]],
+            shape=[k_h, k_h, n_output_ch, n_input_ch or x.get_shape()[-1]],
             initializer=tf.contrib.layers.xavier_initializer_conv2d())
 
         conv = tf.nn.conv2d_transpose(
             name='conv_t',
             value=x,
             filter=W,
-            output_shape=tf.stack(
+            output_shape=tf.pack(
                 [tf.shape(x)[0], n_output_h, n_output_w, n_output_ch]),
             strides=[1, d_h, d_w, 1],
             padding=padding)
